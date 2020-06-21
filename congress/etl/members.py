@@ -26,7 +26,7 @@ class LegislatorsToDB(object):
     def fetch_members(self, params, db='congress'):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASSWORD'),
+            password=os.environ.get('PSQL_PASS'),
             database=db,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
@@ -60,34 +60,36 @@ class LegislatorsToDB(object):
 
     @staticmethod
     def to_psql(df, db='congress'):
-        for row in df.to_dict(orient='records'):
-            q = """INSERT INTO members 
-                (api_uri, at_large, chamber, congress, contact_form, cook_pvi, crp_id,
-                 cspan_id, date_of_birth, district, dw_nominate, facebook_account,
-                 fax, fec_candidate_id, first_name, gender, geoid, google_entity_id,
-                 govtrack_id, icpsr_id, id, ideal_point, in_office, last_name, last_updated, 
-                 leadership_role, lis_id, middle_name, missed_votes, missed_votes_pct,
-                 next_election, ocd_id, office, party, phone, rss_url, senate_class,
-                 seniority, short_title, state, state_rank, suffix, title, total_present,
-                 total_votes, twitter_account, url, votes_against_party_pct, votes_with_party_pct,
-                 votesmart_id, youtube_account)
-            VALUES
-                (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                 %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT ON CONSTRAINT members_pkey DO NOTHING
+        query = """
+        INSERT INTO members 
+            (api_uri, at_large, chamber, congress, contact_form, cook_pvi, crp_id,
+             cspan_id, date_of_birth, district, dw_nominate, facebook_account,
+             fax, fec_candidate_id, first_name, gender, geoid, google_entity_id,
+             govtrack_id, icpsr_id, id, ideal_point, in_office, last_name, last_updated, 
+             leadership_role, lis_id, middle_name, missed_votes, missed_votes_pct,
+             next_election, ocd_id, office, party, phone, rss_url, senate_class,
+             seniority, short_title, state, state_rank, suffix, title, total_present,
+             total_votes, twitter_account, url, votes_against_party_pct, votes_with_party_pct,
+             votesmart_id, youtube_account)
+        VALUES
+            (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+             %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT ON CONSTRAINT members_pkey DO NOTHING
             """
-            conn = psycopg2.connect(
+        conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
-                password=os.environ.get('PSQL_PASSWORD'),
+                password=os.environ.get('PSQL_PASS'),
                 database=db,
                 host=os.environ.get('PSQL_HOST'),
                 port=os.environ.get('PSQL_PORT')
             )
-            cursor = conn.cursor()
-            command = cursor.mogrify(q, (LegislatorsToDB.prep_member_for_psql(row)))
-            cursor.execute(command)
-            conn.commit()
-            conn.close()
+        cursor = conn.cursor()
+        vals = []
+        for row in df.to_dict(orient='records'):
+            vals.append(LegislatorsToDB.prep_member_for_psql(row))
+        cursor.executemany(query, vals)
+        conn.commit()
+        conn.close()
 
     @staticmethod
     def prep_member_for_psql(d):

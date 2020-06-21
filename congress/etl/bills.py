@@ -58,7 +58,7 @@ class BillsToDB(object):
     def migrate_to_psql(self, files, db='congress'):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASSWORD'),
+            password=os.environ.get('PSQL_PASS'),
             database=db,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
@@ -86,7 +86,7 @@ class BillsToDB(object):
         try:
             conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
-                password=os.environ.get('PSQL_PASSWORD'),
+                password=os.environ.get('PSQL_PASS'),
                 database=db,
                 host=os.environ.get('PSQL_HOST'),
                 port=os.environ.get('PSQL_PORT', '5432')
@@ -145,7 +145,7 @@ class BillsToDB(object):
     def add_bill_bodies(self, db='congress', table='bills'):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASSWORD'),
+            password=os.environ.get('PSQL_PASS'),
             database=db,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT', '5432')
@@ -171,7 +171,7 @@ class BillsToDB(object):
             if body is not None:
                 conn = psycopg2.connect(
                     user=os.environ.get('PSQL_USER'),
-                    password=os.environ.get('PSQL_PASSWORD'),
+                    password=os.environ.get('PSQL_PASS'),
                     database=db,
                     host=os.environ.get('PSQL_HOST'),
                     port=os.environ.get('PSQL_PORT', '5432')

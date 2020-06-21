@@ -69,7 +69,7 @@ def df_to_psql(df, db='congress'):
         """
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASSWORD'),
+            password=os.environ.get('PSQL_PASS'),
             database=db,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')

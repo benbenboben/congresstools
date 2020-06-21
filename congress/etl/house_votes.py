@@ -18,7 +18,7 @@ class HouseVotes2DB(object):
     def roll_call_summary_to_psql(self, year, db='congress'):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASSWORD'),
+            password=os.environ.get('PSQL_PASS'),
             database=db,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
@@ -79,7 +79,7 @@ class HouseVotes2DB(object):
             """
             conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
-                password=os.environ.get('PSQL_PASSWORD'),
+                password=os.environ.get('PSQL_PASS'),
                 database=db,
                 host=os.environ.get('PSQL_HOST'),
                 port=os.environ.get('PSQL_PORT')
@@ -168,7 +168,7 @@ class HouseVotes2DB(object):
     def roll_call_single_to_psql(self, year, roll, db='congress'):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASSWORD'),
+            password=os.environ.get('PSQL_PASS'),
             database=db,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
@@ -194,7 +194,7 @@ class HouseVotes2DB(object):
             """
             conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
-                password=os.environ.get('PSQL_PASSWORD'),
+                password=os.environ.get('PSQL_PASS'),
                 database=db,
                 host=os.environ.get('PSQL_HOST'),
                 port=os.environ.get('PSQL_PORT')
