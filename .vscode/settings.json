@@ -1,3 +1,4 @@
 {
-    "python.pythonPath": "/home/benellis/anaconda3/bin/python"
+    "python.pythonPath": "/home/benellis/anaconda3/bin/python",
+    "git.ignoreLimitWarning": true
 }

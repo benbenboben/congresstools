@@ -8,7 +8,6 @@ import pathlib
 import tempfile
 import itertools
 import shutil
-from pymongo import MongoClient
 import json
 import psycopg2
 
@@ -71,8 +70,8 @@ class BillsToDB(object):
         conn.close()
         nerrors = 0
         try:
-            for file in files:
-                data = json.load(open(file, "r"))
+            for f in files:
+                data = json.load(open(f, "r"))
                 vals = self.prep_for_sql(data)
                 res = self.to_psql(vals, db=db)
                 if not res:
@@ -95,9 +94,9 @@ class BillsToDB(object):
             command = cursor.mogrify("""
             INSERT INTO bills 
                 (actions, amendments, bill_id, bill_type, committees, congress, cosponsors, enacted_as,
-                history, introduced_at, number, official_title, popular_title, related_bills,
-                short_title, sponsor, status, status_at, subjects, subjects_top_term, summary,
-                titles, updated_at, bill_body)
+                 history, introduced_at, number, official_title, popular_title, related_bills,
+                 short_title, sponsor, status, status_at, subjects, subjects_top_term, summary,
+                 titles, updated_at, bill_body)
             VALUES
                 (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT ON CONSTRAINT bills_pkey DO NOTHING
@@ -133,6 +132,7 @@ class BillsToDB(object):
                   'subjects_top_term', 'summary',
                   'titles', 'updated_at', 'bill_body'):
             if v not in d:
+                print(v)
                 return False
             else:
                 if isinstance(d[v], list) or isinstance(d[v], dict):
