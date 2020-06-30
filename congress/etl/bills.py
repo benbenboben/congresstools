@@ -10,6 +10,7 @@ import itertools
 import shutil
 import json
 import psycopg2
+import multiprocessing as mp
 
 from congress.etl.vars import TABLE_CREATE_BILLS
 
@@ -20,8 +21,8 @@ class BillsToDB(object):
     Zipped data can be downloaded at
     https://www.propublica.org/datastore/dataset/congressional-data-bulk-legislation-bills
 
-    TODO:
-        1. Export directly to postgres
+    Downloading bills is best done using the context manager as it will automatically clean
+    the temporary directory created.  This can be done manually by calling BillsToDB.dir.cleanup().
     """
 
     def __init__(self, congress):
@@ -69,52 +70,45 @@ class BillsToDB(object):
         conn.commit()
         conn.close()
         nerrors = 0
-        try:
-            for f in files:
-                data = json.load(open(f, "r"))
-                vals = self.prep_for_sql(data)
-                res = self.to_psql(vals, db=db)
-                if not res:
-                    nerrors += 1
-        except:
-            nerrors += 1
+        with mp.Pool(8) as pool:
+            vals = pool.map(BillsToDB.prep_for_sql, files)
+        
+        vals = [i for i in vals if i]
+        BillsToDB.to_psql(vals, db=db)
+        print(nerrors)
 
     @staticmethod
     def to_psql(v, db='congress'):
         conn = None
-        try:
-            conn = psycopg2.connect(
-                user=os.environ.get('PSQL_USER'),
-                password=os.environ.get('PSQL_PASS'),
-                database=db,
-                host=os.environ.get('PSQL_HOST'),
-                port=os.environ.get('PSQL_PORT', '5432')
-            )
-            cursor = conn.cursor()
-            command = cursor.mogrify("""
-            INSERT INTO bills 
-                (actions, amendments, bill_id, bill_type, committees, congress, cosponsors, enacted_as,
-                 history, introduced_at, number, official_title, popular_title, related_bills,
-                 short_title, sponsor, status, status_at, subjects, subjects_top_term, summary,
-                 titles, updated_at, bill_body)
-            VALUES
-                (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT ON CONSTRAINT bills_pkey DO NOTHING
-            """, (v))
-            cursor.execute(command)
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            if conn:
-                conn.close()
-                print(e)
-                return False
-            raise e
-
-        return True
+        query =  '''
+        INSERT INTO bills 
+            (actions, amendments, bill_id, bill_type, committees, congress, cosponsors, enacted_as,
+             history, introduced_at, number, official_title, popular_title, related_bills,
+             short_title, sponsor, status, status_at, subjects, subjects_top_term, summary,
+             titles, updated_at, bill_body)
+        VALUES
+            (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT ON CONSTRAINT bills_pkey DO NOTHING
+        '''
+        conn = psycopg2.connect(
+            user=os.environ.get('PSQL_USER'),
+            password=os.environ.get('PSQL_PASS'),
+            database=db,
+            host=os.environ.get('PSQL_HOST'),
+            port=os.environ.get('PSQL_PORT', '5432')
+        )
+        cursor = conn.cursor()
+        cursor.executemany(query, v)
+        conn.commit()
+        conn.close()
 
     @staticmethod
-    def prep_for_sql(d):
+    def prep_for_sql(f):
+        try:
+            d = json.load(open(f, "r"))
+        except:
+            print(f'error with {f}')
+            return False
         try:
             del d['_id']
         except KeyError:
@@ -132,8 +126,9 @@ class BillsToDB(object):
                   'subjects_top_term', 'summary',
                   'titles', 'updated_at', 'bill_body'):
             if v not in d:
-                print(v)
-                return False
+                print(f'error with {v}')
+                vals.append(None)
+                # return False
             else:
                 if isinstance(d[v], list) or isinstance(d[v], dict):
                     vals.append(json.dumps(d[v]))
@@ -142,7 +137,7 @@ class BillsToDB(object):
 
         return vals
 
-    def add_bill_bodies(self, db='congress', table='bills'):
+    def add_bill_bodies(self, congress, db='congress', table='bills'):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
@@ -158,7 +153,7 @@ class BillsToDB(object):
                     {table} 
                 WHERE 
                     (bill_body = 'NO BODY' OR bill_body IS NULL) 
-                    AND congress > 100
+                    AND congress > {congress} AND congress = {congress}
             """
         )
         df = pd.DataFrame(
@@ -226,50 +221,3 @@ class BillsToDB(object):
     @staticmethod
     def ordinal(n):
         return "%d%s" % (n, "tsnrhtdd"[(n / 10 % 10 != 1) * (n % 10 < 4) * n % 10::4])
-
-    # started using mongo but quickly remembered why i hate mongo
-    # def migrate_to_mongo(self, files, db="congress", collection="bills", batchsize=1000):
-    #     client = MongoClient(
-    #         os.environ.get('MONGO_HOST', 'localhost'),
-    #         os.environ.get('MONGO_PORT', 27017)
-    #     )
-    #     coll = client[db][collection]
-    #
-    #     batches = np.array_split(files, int(len(files) / batchsize) + 1)
-    #
-    #     for batch in batches:
-    #         batch_data = []
-    #         for file in batch:
-    #             data = json.load(open(file, "r"))
-    #             batch_data.append(data)
-    #         coll.insert_many(batch_data)
-    #
-    #     client.close()
-    #
-    # def migrate_to_mongo_one_at_time(self, files, db="congress", collection="bills"):
-    #     client = MongoClient(
-    #         os.environ.get('MONGO_HOST', 'localhost'),
-    #         os.environ.get('MONGO_PORT', 27017)
-    #     )
-    #     db = client[db]
-    #     coll = db[collection]
-    #
-    #     nerrors = 0
-    #     try:
-    #         for file in files:
-    #             data = json.load(open(file, "r"))
-    #             res = coll.insert_one(data)
-    #             if not res:
-    #                 nerrors += 1
-    #     except:
-    #         nerrors += 1
-    #
-    #     print(len(files), nerrors)
-    #
-    #     client.close()
-
-
-
-
-
-
