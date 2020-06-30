@@ -75,7 +75,7 @@ class LegislatorsToDB(object):
             (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
              %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT ON CONSTRAINT members_pkey DO NOTHING
-            """
+        """
         conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
                 password=os.environ.get('PSQL_PASS'),
