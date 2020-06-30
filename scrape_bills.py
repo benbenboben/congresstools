@@ -4,20 +4,28 @@ import os
 from argparse import ArgumentParser
 
 
-def main(db, congress):
+def main(db, congress, bodies):
     assert db is not None and congress in list(range(93, 116))
-    url = f'https://s3.amazonaws.com/pp-projects-static/congress/bills/{congress}.zip'
-    r = requests.get(url, allow_redirects=True)
 
-    with open(f'{congress}.zip', 'wb') as f:
-        f.write(r.content)
-    
-    with BillsToDB(congress) as bills_to_db:
-        bills_to_db.extract_file(f'{congress}.zip')
-        files = bills_to_db.get_filetypes()
-        bills_to_db.migrate_to_psql(files)
+    if not bodies:
+        url = f'https://s3.amazonaws.com/pp-projects-static/congress/bills/{congress}.zip'
+        r = requests.get(url, allow_redirects=True)
 
-    os.unlink(f'{congress}.zip')
+        with open(f'{congress}.zip', 'wb') as f:
+            f.write(r.content)
+        
+        with BillsToDB(congress) as bills_to_db:
+            bills_to_db.extract_file(f'{congress}.zip')
+            files = bills_to_db.get_filetypes()
+            files = [i for i in files if 'amendments' not in i]
+            bills_to_db.migrate_to_psql(files)
+
+        os.unlink(f'{congress}.zip')
+    else:
+        with BillsToDB(congress) as bills_to_db:
+            bills_to_db.add_bill_bodies(congress, db)
+
+
 
 
 if __name__ == '__main__':
@@ -26,6 +34,8 @@ if __name__ == '__main__':
     )
     parser.add_argument('--db', help='Name of DB', type=str)
     parser.add_argument('--congress', help='Congress Number', type=int)
+    parser.add_argument('--bodies', help='Scrape congressional bodies', 
+                        action='store_true', default=False)
     args = parser.parse_args()
 
-    main(args.db, args.congress)
+    main(args.db, args.congress, args.bodies)
