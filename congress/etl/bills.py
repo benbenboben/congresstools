@@ -25,41 +25,62 @@ class BillsToDB(object):
     the temporary directory created.  This can be done manually by calling BillsToDB.dir.cleanup().
     """
 
-    def __init__(self, congress):
+    def __init__(self, congress, database, table):
+        """Initialize object.
+        """
+        self.congress = congress
+        self.database = database
+        self.table = table
         self.dir = tempfile.TemporaryDirectory()
-        self.congress = str(congress)
         print(f"{self.dir.name}")
 
     def __enter__(self):
+        """Enter
+
+        :return: self
+        :rtype: BillsToDB
+        """
         return self
 
     def __exit__(self, *args):
+        """Exit.
+        """
         self.dir.cleanup()
 
     def extract_file(self, f):
+        """Extract a zip file.
+
+        :param f: /path/to/file
+        :type f: str
+        """
         with zipfile.ZipFile(f, "r") as zip_ref:
             zip_ref.extractall(self.dir.name)
 
     def get_filetypes(self, ftype=".json"):
+        """Get all types of a certain file.
+
+        :param ftype: file extension, defaults to ".json"
+        :type ftype: str, optional
+        :return: /path/to/files
+        :rtype: list
+        """
         found = []
-        for root, dirs, files in os.walk(self.dir.name):
+        for root, _, files in os.walk(self.dir.name):
             for file in files:
                 if file.endswith(ftype):
                     found.append(os.path.join(root, file))
         return found
 
-    def migrate(self, files, loc):
-        p = pathlib.Path(loc)
-        p.mkdir(parents=True, exist_ok=True)
-        for f in files:
-            simpleid = f.split("/")[-2]
-            shutil.move(f, os.path.join(loc, self.congress + "." + simpleid + ".json"))
+    def migrate_to_psql(self, files):
+        """Move extracted files to PostgreSQL.
 
-    def migrate_to_psql(self, files, db='congress'):
+        :param files: path/to/files
+        :type files: list
+        """
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
-            database=db,
+            database=self.database,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
         )
@@ -74,14 +95,17 @@ class BillsToDB(object):
             vals = pool.map(BillsToDB.prep_for_sql, files)
         
         vals = [i for i in vals if i]
-        BillsToDB.to_psql(vals, db=db)
-        print(nerrors)
+        self.to_psql(vals)
 
-    @staticmethod
-    def to_psql(v, db='congress'):
+    def to_psql(self, v):
+        """Execute insert statement(s).
+
+        :param v: tuples of data
+        :type v: list
+        """
         conn = None
-        query =  '''
-        INSERT INTO bills 
+        query =  f'''
+        INSERT INTO {self.table} 
             (actions, amendments, bill_id, bill_type, committees, congress, cosponsors, enacted_as,
              history, introduced_at, number, official_title, popular_title, related_bills,
              short_title, sponsor, status, status_at, subjects, subjects_top_term, summary,
@@ -93,7 +117,7 @@ class BillsToDB(object):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
-            database=db,
+            database=self.database,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT', '5432')
         )
@@ -104,6 +128,13 @@ class BillsToDB(object):
 
     @staticmethod
     def prep_for_sql(f):
+        """Extract data from flat files and transform for database.
+
+        :param f: /path/to/json
+        :type f: str
+        :return: row for database
+        :rtype: list
+        """
         try:
             d = json.load(open(f, "r"))
         except:
@@ -128,7 +159,6 @@ class BillsToDB(object):
             if v not in d:
                 print(f'error with {v}')
                 vals.append(None)
-                # return False
             else:
                 if isinstance(d[v], list) or isinstance(d[v], dict):
                     vals.append(json.dumps(d[v]))
@@ -137,11 +167,13 @@ class BillsToDB(object):
 
         return vals
 
-    def add_bill_bodies(self, congress, db='congress', table='bills'):
+    def add_bill_bodies(self):
+        """Scrape bill bodies.
+        """
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
-            database=db,
+            database=self.database,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT', '5432')
         )
@@ -150,10 +182,10 @@ class BillsToDB(object):
             f"""SELECT 
                     bill_type, bill_id, congress 
                 FROM 
-                    {table} 
+                    {self.table} 
                 WHERE 
                     (bill_body = 'NO BODY' OR bill_body IS NULL) 
-                    AND congress > {congress} AND congress = {congress}
+                     AND congress = {self.congress}
             """
         )
         df = pd.DataFrame(
@@ -167,14 +199,14 @@ class BillsToDB(object):
                 conn = psycopg2.connect(
                     user=os.environ.get('PSQL_USER'),
                     password=os.environ.get('PSQL_PASS'),
-                    database=db,
+                    database=self.database,
                     host=os.environ.get('PSQL_HOST'),
                     port=os.environ.get('PSQL_PORT', '5432')
                 )
                 cursor = conn.cursor()
                 command = f"""
                     UPDATE 
-                        bills
+                        {self.table}
                     SET 
                         bill_body = '{body}' 
                     WHERE 
@@ -188,8 +220,17 @@ class BillsToDB(object):
 
     @staticmethod
     def fetch_bill_text(bill_type, bill_id, congress):
-        # found ordinal func on stack overflow - not perfect but works for this
-        # ordinal = lambda n: "%d%s" % (n, "tsnrhtdd"[(n / 10 % 10 != 1) * (n % 10 < 4) * n % 10::4])
+        """Get text of bill.
+
+        :param bill_type: type of bill (see mapper variable)
+        :type bill_type: str
+        :param bill_id: unique id for a bill
+        :type bill_id: str
+        :param congress: congress number
+        :type congress: int or str
+        :return: text of bill
+        :rtype: str
+        """
         mapper = {
             "hconres": "house-concurrent-resolution",
             "hjres": "house-joint-resolution",
@@ -220,4 +261,11 @@ class BillsToDB(object):
 
     @staticmethod
     def ordinal(n):
+        """Transform number to have suffix (1 -> 1st, ...)
+
+        :param n: number to transform
+        :type n: int
+        :return: number with suffix
+        :rtype: str
+        """
         return "%d%s" % (n, "tsnrhtdd"[(n / 10 % 10 != 1) * (n % 10 < 4) * n % 10::4])

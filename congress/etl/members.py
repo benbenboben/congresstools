@@ -19,15 +19,31 @@ class APIError(Exception):
 
 
 class LegislatorsToDB(object):
+    """
+    Move data about legislators into PostegreSQL
+    """
 
-    def __init__(self, api_key):
+    def __init__(self, api_key, db, table):
+        """Initialize object
+
+        :param api_key: api key from pro publica
+        :type api_key: str
+        """
         self.api_key = api_key
+        self.database = db
+        self.table = table
 
-    def fetch_members(self, params, db='congress'):
+    def fetch_members(self, params):
+        """Get members of congress from pro publica.
+
+        :param params: grid of chamber and congress number
+        :type params: dict with keys being chamber ('house', or 'senate') and 
+                      values being a list of congress numbers
+        """
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
-            database=db,
+            database=self.database,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
         )
@@ -56,12 +72,16 @@ class LegislatorsToDB(object):
                 all_members.append(members)
         df = pd.concat(all_members)
 
-        LegislatorsToDB.to_psql(df, db=db)
+        self.to_psql(df)
 
-    @staticmethod
-    def to_psql(df, db='congress'):
-        query = """
-        INSERT INTO members 
+    def to_psql(self, df):
+        """Transform DataFrame into rows for PostgreSQL.
+
+        :param df: tabularized data from API
+        :type df: pd.DataFrame
+        """
+        query = f"""
+        INSERT INTO {self.table} 
             (api_uri, at_large, chamber, congress, contact_form, cook_pvi, crp_id,
              cspan_id, date_of_birth, district, dw_nominate, facebook_account,
              fax, fec_candidate_id, first_name, gender, geoid, google_entity_id,
@@ -79,7 +99,7 @@ class LegislatorsToDB(object):
         conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
                 password=os.environ.get('PSQL_PASS'),
-                database=db,
+                database=self.database,
                 host=os.environ.get('PSQL_HOST'),
                 port=os.environ.get('PSQL_PORT')
             )
@@ -107,11 +127,25 @@ class LegislatorsToDB(object):
                 d[c] = '1900-01-01'
             try:
                 vals.append(d[c])
+                if d[c] == 'David':
+                    print(d)
             except KeyError:
-                vals.append('')
+                vals.append(0)
+           
         return vals
 
     def _base_call(self, endpoint, headers=None, params=None):
+        """Hit endpoint.
+
+        :param endpoint: url
+        :type endpoint: str
+        :param headers: headers for request, defaults to None
+        :type headers: dict, optional
+        :param params: parameters for API, defaults to None
+        :type params: dict, optional
+        :return: response   
+        :rtype: dict
+        """
         if headers is None:
             headers = {"X-API-Key": self.api_key}
         else:
@@ -124,46 +158,3 @@ class LegislatorsToDB(object):
             raise APIError(f"Error fetching member data -- received {r.status_code}")
         else:
             return json.loads(r.text)
-
-    # def fetch_bills_by_member(self, params, full_text=False, tabularize=True):
-    #     """Get all bills for a given member of congress.
-    #
-    #     params: dict of member_id key with bill type as values
-    #             legal values:
-    #                 member_id: see id field from members response
-    #                 typ: introduced, updated, active, passed, enacted, vetoed
-    #
-    #     returns list of json responses(1 for each id-type pair) or dataframe
-    #     """
-    #     responses = []
-    #     for mid, typ in params.items():
-    #         for t in typ:
-    #             endpoint = f"https://api.propublica.org/congress/v1/members/{mid}/bills/{t}.json"
-    #             offset = 0
-    #             r = self._base_call(endpoint, params={"offset": str(offset)})
-    #             results = r["results"]
-    #             responses.append(r)
-    #             offset += 20
-    #             while offset < results[0]["num_results"]:
-    #                 offset += 20
-    #                 responses.append(self._base_call(endpoint, params={"offset": str(offset)}))
-    #
-    #     if tabularize:
-    #         all_bills = []
-    #         for r in responses:
-    #             bills = []
-    #             for res in r["results"]:
-    #                 bills += res["bills"]
-    #             bills = pd.DataFrame(bills)
-    #             bills["id"] = res["id"]
-    #             bills["name"] = res["name"]
-    #             all_bills.append(bills)
-    #         return pd.concat(all_bills).reset_index(drop=True)
-    #     else:
-    #         return responses
-
-    # @staticmethod
-    # def fetch_bill_text(endpoint):
-    #     p = BeautifulSoup(requests.get(endpoint + "/text?format=txt").text)
-    #     body = p.find(id="billTextContainer").get_text()
-    #     return body

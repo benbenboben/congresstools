@@ -4,7 +4,7 @@ import os
 from argparse import ArgumentParser
 
 
-def main(db, congress, bodies):
+def main(db, congress, table, bodies):
     assert db is not None and congress in list(range(93, 116))
 
     if not bodies:
@@ -14,7 +14,7 @@ def main(db, congress, bodies):
         with open(f'{congress}.zip', 'wb') as f:
             f.write(r.content)
         
-        with BillsToDB(congress) as bills_to_db:
+        with BillsToDB(congress, db, table) as bills_to_db:
             bills_to_db.extract_file(f'{congress}.zip')
             files = bills_to_db.get_filetypes()
             files = [i for i in files if 'amendments' not in i]
@@ -22,11 +22,9 @@ def main(db, congress, bodies):
 
         os.unlink(f'{congress}.zip')
     else:
-        with BillsToDB(congress) as bills_to_db:
-            bills_to_db.add_bill_bodies(congress, db)
-
-
-
+        with BillsToDB(congress, db, table) as bills_to_db:
+            bills_to_db.add_bill_bodies()
+            
 
 if __name__ == '__main__':
     parser = ArgumentParser(
@@ -34,8 +32,9 @@ if __name__ == '__main__':
     )
     parser.add_argument('--db', help='Name of DB', type=str)
     parser.add_argument('--congress', help='Congress Number', type=int)
+    parser.add_argument('--table', help='Table name', type=str, default='bills')
     parser.add_argument('--bodies', help='Scrape congressional bodies', 
                         action='store_true', default=False)
     args = parser.parse_args()
 
-    main(args.db, args.congress, args.bodies)
+    main(args.db, args.congress, args.table, args.bodies)
