@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 
 
 def main(db, table, chamber, congress, get_all):
-    assert db is not None
+    assert db is not None and table is not None
     legis = LegislatorsToDB(os.environ['PRO_PUBLICA_API_KEY'], db, table)
     if get_all:
         legis.fetch_members(
