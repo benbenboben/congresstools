@@ -13,9 +13,10 @@ import psycopg2
 import multiprocessing as mp
 
 from congress.etl.vars import TABLE_CREATE_BILLS
+from congress.etl.base import DataToDB
 
 
-class BillsToDB(object):
+class BillsToDB(DataToDB):
     """
     Object to move data from flat JSON files into MongoDB.
     Zipped data can be downloaded at
@@ -25,12 +26,9 @@ class BillsToDB(object):
     the temporary directory created.  This can be done manually by calling BillsToDB.dir.cleanup().
     """
 
-    def __init__(self, congress, database, table):
+    def __init__(self):
         """Initialize object.
         """
-        self.congress = congress
-        self.database = database
-        self.table = table
         self.dir = tempfile.TemporaryDirectory()
         print(f"{self.dir.name}")
 
@@ -47,87 +45,24 @@ class BillsToDB(object):
         """
         self.dir.cleanup()
 
-    def extract_file(self, f):
-        """Extract a zip file.
+    def fetch(self, congress):
+        url = f'https://s3.amazonaws.com/pp-projects-static/congress/bills/{congress}.zip'
+        r = requests.get(url, allow_redirects=True)
 
-        :param f: /path/to/file
-        :type f: str
-        """
-        with zipfile.ZipFile(f, "r") as zip_ref:
+        fname = f'{self.dir.name}/{congress}.zip'
+        with open(fname, 'wb') as f:
+            f.write(r.content)
+
+        with zipfile.ZipFile(fname, 'r') as zip_ref:
             zip_ref.extractall(self.dir.name)
-
-    def get_filetypes(self, ftype=".json"):
-        """Get all types of a certain file.
-
-        :param ftype: file extension, defaults to ".json"
-        :type ftype: str, optional
-        :return: /path/to/files
-        :rtype: list
-        """
-        found = []
-        for root, _, files in os.walk(self.dir.name):
-            for file in files:
-                if file.endswith(ftype):
-                    found.append(os.path.join(root, file))
-        return found
-
-    def migrate_to_psql(self, files):
-        """Move extracted files to PostgreSQL.
-
-        :param files: path/to/files
-        :type files: list
-        """
-        conn = psycopg2.connect(
-            user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASS'),
-            database=self.database,
-            host=os.environ.get('PSQL_HOST'),
-            port=os.environ.get('PSQL_PORT')
-        )
-        cursor = conn.cursor()
-        cursor.execute(
-            TABLE_CREATE_BILLS
-        )
-        conn.commit()
-        conn.close()
-        nerrors = 0
-        with mp.Pool(8) as pool:
-            vals = pool.map(BillsToDB.prep_for_sql, files)
         
-        vals = [i for i in vals if i]
-        self.to_psql(vals)
+        files = self._get_files_by_type()
+        # amendments break things currently
+        files = [i for i in files if 'amendments' not in i]
 
-    def to_psql(self, v):
-        """Execute insert statement(s).
+        return pd.DataFrame(files, columns=['file'])
 
-        :param v: tuples of data
-        :type v: list
-        """
-        conn = None
-        query =  f'''
-        INSERT INTO {self.table} 
-            (actions, amendments, bill_id, bill_type, committees, congress, cosponsors, enacted_as,
-             history, introduced_at, number, official_title, popular_title, related_bills,
-             short_title, sponsor, status, status_at, subjects, subjects_top_term, summary,
-             titles, updated_at, bill_body)
-        VALUES
-            (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT ON CONSTRAINT bills_pkey DO NOTHING
-        '''
-        conn = psycopg2.connect(
-            user=os.environ.get('PSQL_USER'),
-            password=os.environ.get('PSQL_PASS'),
-            database=self.database,
-            host=os.environ.get('PSQL_HOST'),
-            port=os.environ.get('PSQL_PORT', '5432')
-        )
-        cursor = conn.cursor()
-        cursor.executemany(query, v)
-        conn.commit()
-        conn.close()
-
-    @staticmethod
-    def prep_for_sql(f):
+    def cleanse(self, d):
         """Extract data from flat files and transform for database.
 
         :param f: /path/to/json
@@ -135,6 +70,7 @@ class BillsToDB(object):
         :return: row for database
         :rtype: list
         """
+        f = d['file']
         try:
             d = json.load(open(f, "r"))
         except:
@@ -167,105 +103,161 @@ class BillsToDB(object):
 
         return vals
 
-    def add_bill_bodies(self):
-        """Scrape bill bodies.
+    def _get_files_by_type(self, typ=".json"):
+        """Get all types of a certain file.
+
+        :param ftype: file extension, defaults to ".json"
+        :type ftype: str, optional
+        :return: /path/to/files
+        :rtype: list
         """
+        found = []
+        for root, _, files in os.walk(self.dir.name):
+            for file in files:
+                if file.endswith(typ):
+                    found.append(os.path.join(root, file))
+        return found
+
+    def create_table(self):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
-            database=self.database,
+            database='congress',
+            host=os.environ.get('PSQL_HOST'),
+            port=os.environ.get('PSQL_PORT')
+        )
+        cursor = conn.cursor()
+        cursor.execute(TABLE_CREATE_BILLS)
+        conn.commit()
+        conn.close()
+
+    def to_psql(self, v):
+        """Execute insert statement(s).
+
+        :param v: tuples of data
+        :type v: list
+        """
+        query =  '''
+        INSERT INTO bills
+            (actions, amendments, bill_id, bill_type, committees, congress, cosponsors, enacted_as,
+             history, introduced_at, number, official_title, popular_title, related_bills,
+             short_title, sponsor, status, status_at, subjects, subjects_top_term, summary,
+             titles, updated_at, bill_body)
+        VALUES
+            (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT ON CONSTRAINT bills_pkey DO NOTHING
+        '''
+        conn = psycopg2.connect(
+            user=os.environ.get('PSQL_USER'),
+            password=os.environ.get('PSQL_PASS'),
+            database='congress',
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT', '5432')
         )
         cursor = conn.cursor()
-        cursor.execute(
-            f"""SELECT 
-                    bill_type, bill_id, congress 
-                FROM 
-                    {self.table} 
-                WHERE 
-                    (bill_body = 'NO BODY' OR bill_body IS NULL) 
-                     AND congress = {self.congress}
-            """
-        )
-        df = pd.DataFrame(
-            cursor.fetchall(), columns=['bill_type', 'bill_id', 'congress']
-        )
+        cursor.executemany(query, v)
+        conn.commit()
         conn.close()
 
-        for _, row in df.to_dict(orient='records'):
-            body = self.fetch_bill_text(row['bill_type'], row['bill_id'], row['congress'])
-            if body is not None:
-                conn = psycopg2.connect(
-                    user=os.environ.get('PSQL_USER'),
-                    password=os.environ.get('PSQL_PASS'),
-                    database=self.database,
-                    host=os.environ.get('PSQL_HOST'),
-                    port=os.environ.get('PSQL_PORT', '5432')
-                )
-                cursor = conn.cursor()
-                command = f"""
-                    UPDATE 
-                        {self.table}
-                    SET 
-                        bill_body = '{body}' 
-                    WHERE 
-                        bill_type = '{row['bill_type']}' 
-                        AND bill_id = '{row['bill_id']}' 
-                        AND congress = {row['congress']}
-                """
-                cursor.execute(command)
-                conn.commit()
-                conn.close()
+    # def add_bill_bodies(self):
+    #     """Scrape bill bodies.
+    #     """
+    #     conn = psycopg2.connect(
+    #         user=os.environ.get('PSQL_USER'),
+    #         password=os.environ.get('PSQL_PASS'),
+    #         database='congress',
+    #         host=os.environ.get('PSQL_HOST'),
+    #         port=os.environ.get('PSQL_PORT', '5432')
+    #     )
+    #     cursor = conn.cursor()
+    #     cursor.execute(
+    #         f"""SELECT 
+    #                 bill_type, bill_id, congress 
+    #             FROM 
+    #                 {self.table} 
+    #             WHERE 
+    #                 (bill_body = 'NO BODY' OR bill_body IS NULL) 
+    #                  AND congress = {self.congress}
+    #         """
+    #     )
+    #     df = pd.DataFrame(
+    #         cursor.fetchall(), columns=['bill_type', 'bill_id', 'congress']
+    #     )
+    #     conn.close()
 
-    @staticmethod
-    def fetch_bill_text(bill_type, bill_id, congress):
-        """Get text of bill.
+    #     for _, row in df.to_dict(orient='records'):
+    #         body = self.fetch_bill_text(row['bill_type'], row['bill_id'], row['congress'])
+    #         if body is not None:
+    #             conn = psycopg2.connect(
+    #                 user=os.environ.get('PSQL_USER'),
+    #                 password=os.environ.get('PSQL_PASS'),
+    #                 database=self.database,
+    #                 host=os.environ.get('PSQL_HOST'),
+    #                 port=os.environ.get('PSQL_PORT', '5432')
+    #             )
+    #             cursor = conn.cursor()
+    #             command = f"""
+    #                 UPDATE 
+    #                     {self.table}
+    #                 SET 
+    #                     bill_body = '{body}' 
+    #                 WHERE 
+    #                     bill_type = '{row['bill_type']}' 
+    #                     AND bill_id = '{row['bill_id']}' 
+    #                     AND congress = {row['congress']}
+    #             """
+    #             cursor.execute(command)
+    #             conn.commit()
+    #             conn.close()
 
-        :param bill_type: type of bill (see mapper variable)
-        :type bill_type: str
-        :param bill_id: unique id for a bill
-        :type bill_id: str
-        :param congress: congress number
-        :type congress: int or str
-        :return: text of bill
-        :rtype: str
-        """
-        mapper = {
-            "hconres": "house-concurrent-resolution",
-            "hjres": "house-joint-resolution",
-            "hr": "house-bill",
-            "hres": "house-resolution",
-            "s": "senate-bill",
-            "sconres": "senate-concurrent-resolution",
-            "sjres": "senate-joint-resolution",
-            "sres": "senate-resolution"
-        }
-        if bill_type not in mapper:
-            return None
+    # @staticmethod
+    # def fetch_bill_text(bill_type, bill_id, congress):
+    #     """Get text of bill.
 
-        bill_num = bill_id.split("-")[0]
-        bill_num = "".join([i for i in bill_num if i.isdigit()])
+    #     :param bill_type: type of bill (see mapper variable)
+    #     :type bill_type: str
+    #     :param bill_id: unique id for a bill
+    #     :type bill_id: str
+    #     :param congress: congress number
+    #     :type congress: int or str
+    #     :return: text of bill
+    #     :rtype: str
+    #     """
+    #     mapper = {
+    #         "hconres": "house-concurrent-resolution",
+    #         "hjres": "house-joint-resolution",
+    #         "hr": "house-bill",
+    #         "hres": "house-resolution",
+    #         "s": "senate-bill",
+    #         "sconres": "senate-concurrent-resolution",
+    #         "sjres": "senate-joint-resolution",
+    #         "sres": "senate-resolution"
+    #     }
+    #     if bill_type not in mapper:
+    #         return None
 
-        mapped_btype = mapper[bill_type]
-        ord_cong = BillsToDB.ordinal(int(congress))
-        url = f"https://www.congress.gov/bill/{ord_cong}-congress/{mapped_btype}/{bill_num}/text?format=txt"
+    #     bill_num = bill_id.split("-")[0]
+    #     bill_num = "".join([i for i in bill_num if i.isdigit()])
 
-        try:
-            p = BeautifulSoup(requests.get(url).text)
-            body = p.find(id="billTextContainer").get_text()
-        except AttributeError:
-            print(bill_type, bill_id, congress, url)
-            return None
-        return body
+    #     mapped_btype = mapper[bill_type]
+    #     ord_cong = BillsToDB.ordinal(int(congress))
+    #     url = f"https://www.congress.gov/bill/{ord_cong}-congress/{mapped_btype}/{bill_num}/text?format=txt"
 
-    @staticmethod
-    def ordinal(n):
-        """Transform number to have suffix (1 -> 1st, ...)
+    #     try:
+    #         p = BeautifulSoup(requests.get(url).text)
+    #         body = p.find(id="billTextContainer").get_text()
+    #     except AttributeError:
+    #         print(bill_type, bill_id, congress, url)
+    #         return None
+    #     return body
 
-        :param n: number to transform
-        :type n: int
-        :return: number with suffix
-        :rtype: str
-        """
-        return "%d%s" % (n, "tsnrhtdd"[(n / 10 % 10 != 1) * (n % 10 < 4) * n % 10::4])
+    # @staticmethod
+    # def ordinal(n):
+    #     """Transform number to have suffix (1 -> 1st, ...)
+
+    #     :param n: number to transform
+    #     :type n: int
+    #     :return: number with suffix
+    #     :rtype: str
+    #     """
+    #     return "%d%s" % (n, "tsnrhtdd"[(n / 10 % 10 != 1) * (n % 10 < 4) * n % 10::4])

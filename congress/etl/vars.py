@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS public.house_votes_individual
 (
     name_id character varying(32) COLLATE pg_catalog."default",
     sort_field text COLLATE pg_catalog."default",
-    unaccented_name text COLLATE pg_catalog."default",
+    last_name character varying(255) COLLATE pg_catalog."default",
     party character varying(32) COLLATE pg_catalog."default",
     state character varying(32) COLLATE pg_catalog."default",
     vote character varying(32) COLLATE pg_catalog."default",
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS public.house_votes_individual
     rollcall integer NOT NULL,
     vote_question text COLLATE pg_catalog."default",
     title text COLLATE pg_catalog."default",
-    CONSTRAINT house_votes_individual_pkey PRIMARY KEY (congress, roll_call)
+    CONSTRAINT house_votes_individual_pkey PRIMARY KEY (congress, rollcall, last_name, state)
 )
 
 TABLESPACE pg_default;

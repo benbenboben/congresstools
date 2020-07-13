@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import pandas as pd
+import numpy as np
 import fractions
 import re
 import psycopg2
@@ -12,14 +13,28 @@ from congress.etl.vars import TABLE_CREATE_HOUSE_VOTES, TABLE_CREATE_HOUSE_VOTES
 
 class HouseVotes2DB(object):
 
-    def __init__(self):
-        pass
+    def __init__(self, db, table):
+        self.database = db
+        self.table = table
 
-    def roll_call_summary_to_psql(self, year, db='congress'):
+    def votes_to_psql(self, year):
+        rolls = self.roll_call_summary_to_psql(year)
+        dfs = []
+        for r in rolls:
+            this_df = self.roll_call_single_to_psql(year, r)
+            dfs.append(this_df)
+            break
+
+        for x in range(0, len(dfs), 20):
+            print(f'{x} to {x + 20} out of {len(dfs)}', end='\r')
+            df = pd.concat(dfs[x: x + 20])
+            self.individual_to_psql(df)
+
+    def roll_call_summary_to_psql(self, year):
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
-            database=db,
+            database=self.database,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
         )
@@ -32,9 +47,11 @@ class HouseVotes2DB(object):
 
         table = self.roll_call_summary(year)
 
-        HouseVotes2DB.summary_to_psql(table)
+        self.summary_to_psql(table)
 
-    def roll_call_summary(self, year, to_postgres=True, db='congress'):
+        return list(table['rollcall'])
+
+    def roll_call_summary(self, year):
         url = f"http://clerk.house.gov/evs/{year}"
         rolls = ['ROLL_000.asp'] + [f'ROLL_{i * 100}.asp' for i in range(1, 20)]
 
@@ -52,10 +69,6 @@ class HouseVotes2DB(object):
 
         df = pd.concat(tables, ignore_index=True)
         return df
-        # df['date'] = str(year) + '-' + df['date'].astype(str)
-        # df['date'] = pd.to_datetime(df['date'], format='%Y-%d-%b', errors='coerce')
-        #
-        # return df
 
     @staticmethod
     def prep_summary_for_psql(d):
@@ -68,10 +81,9 @@ class HouseVotes2DB(object):
                 vals.append('')
         return vals
 
-    @staticmethod
-    def summary_to_psql(df, db='congress'):
+    def summary_to_psql(self, df):
         for row in df.to_dict(orient='records'):
-            q = """INSERT INTO house_votes 
+            q = f"""INSERT INTO {self.table} 
                 (rollcall, date, bill, session, congress, type, result, title)
             VALUES
                 (%s,%s,%s,%s,%s,%s,%s,%s)
@@ -80,7 +92,7 @@ class HouseVotes2DB(object):
             conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
                 password=os.environ.get('PSQL_PASS'),
-                database=db,
+                database=self.database,
                 host=os.environ.get('PSQL_HOST'),
                 port=os.environ.get('PSQL_PORT')
             )
@@ -126,9 +138,7 @@ class HouseVotes2DB(object):
                 print(e)
         return pd.DataFrame(dfdata)
 
-    def roll_call_single(self, year, roll, to_posgres=True, db='congress'):
-        # 'http://clerk.house.gov/cgi-bin/vote.asp?year=2019&rollnumber=99'
-        # url = f'http://clerk.house.gov/cgi-bin/vote.asp?year={year}&rollnumber={roll}'
+    def roll_call_single(self, year, roll):
         roll = str(roll)
         nz = 3 - len(roll)
         roll = ('0' * nz) + roll
@@ -139,11 +149,11 @@ class HouseVotes2DB(object):
 
         congress = soup.find('congress').text
         session = ''.join([i for i in soup.find('session').text if i.isdigit()])
-        chamber = soup.find('chamber').text
+        # chamber = soup.find('chamber').text
         rollcall = soup.find('rollcall-num').text
         vq = soup.find('vote-question').text
         vt = soup.find('vote-type').text
-        vr = soup.find('vote-result').text
+        # vr = soup.find('vote-result').text
         # date = soup.find('action-date').text
         # tofd = soup.find('action-time').text
         title = soup.find('vote-desc').text
@@ -151,7 +161,9 @@ class HouseVotes2DB(object):
         votes = []
         for i in soup.find_all('recorded-vote'):
             votes.append(
-                {**i.find('legislator').attrs, **{'vote': i.find('vote').text}}
+                {**i.find('legislator').attrs, 
+                 **{'vote': i.find('vote').text},
+                 **{'last_name': i.find('legislator').text.split(' ')[0]}}
             )
         df = pd.DataFrame(votes)
         df.columns = [i.replace('-', '_') for i in df.columns]
@@ -162,14 +174,15 @@ class HouseVotes2DB(object):
         df['vote_type'] = vt
         # df['vote_result'] = vr
         df['title'] = title
-
+        
         return df
 
-    def roll_call_single_to_psql(self, year, roll, db='congress'):
+    def roll_call_single_to_psql(self, year, roll):
+
         conn = psycopg2.connect(
             user=os.environ.get('PSQL_USER'),
             password=os.environ.get('PSQL_PASS'),
-            database=db,
+            database=self.database,
             host=os.environ.get('PSQL_HOST'),
             port=os.environ.get('PSQL_PORT')
         )
@@ -181,40 +194,46 @@ class HouseVotes2DB(object):
         conn.close()
 
         df = self.roll_call_single(year, roll)
-        HouseVotes2DB.individual_to_psql(df, db=db)
+        return df
+        # self.individual_to_psql(df)
 
-    @staticmethod
-    def individual_to_psql(df, db='congress'):
-        for row in df.to_dict(orient='records'):
-            q = """INSERT INTO house_votes_individual 
-                (name_id, unaccented_name, party, state, vote,
+    def individual_to_psql(self, df):
+        q = f"""INSERT INTO {self.table + '_individual'} 
+                (name_id, last_name, party, state, vote,
                  congress, session, rollcall, vote_question, title)
-            VALUES
+                VALUES
                 (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT ON CONSTRAINT house_votes_individual_pkey DO NOTHING
+
             """
-            conn = psycopg2.connect(
-                user=os.environ.get('PSQL_USER'),
-                password=os.environ.get('PSQL_PASS'),
-                database=db,
-                host=os.environ.get('PSQL_HOST'),
-                port=os.environ.get('PSQL_PORT')
-            )
-            cursor = conn.cursor()
-            command = cursor.mogrify(q, (HouseVotes2DB.prep_individual_for_psql(row)))
-            cursor.execute(command)
-            conn.commit()
-            conn.close()
+        vals = []
+        for row in df.to_dict(orient='records'):
+            # command = cursor.mogrify(q, (HouseVotes2DB.prep_individual_for_psql(row)))
+            # cursor.execute(command)
+            vals.append(HouseVotes2DB.prep_individual_for_psql(row))
+           
+        conn = psycopg2.connect(
+            user=os.environ.get('PSQL_USER'),
+            password=os.environ.get('PSQL_PASS'),
+            database=self.database,
+            host=os.environ.get('PSQL_HOST'),
+            port=os.environ.get('PSQL_PORT')
+        )
+        cursor = conn.cursor()
+        cursor.executemany(q, vals)
+        conn.commit()
+        conn.close()
+
 
     @staticmethod
     def prep_individual_for_psql(d):
         vals = []
-        for c in ['name_id', 'unaccented_name', 'party', 'state', 'vote',
+        for c in ['name_id', 'last_name', 'party', 'state', 'vote',
                   'congress', 'session', 'rollcall', 'vote_question', 'title']:
             try:
                 vals.append(d[c])
             except KeyError:
-                print(f'{c} is all fucked up')
-                print(d)
+                # print(c)
                 vals.append('')
         return vals
 
