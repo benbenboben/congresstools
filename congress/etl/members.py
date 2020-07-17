@@ -90,7 +90,7 @@ class LegislatorsToDB(DataToDB):
         VALUES
             (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
              %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT ON CONSTRAINT memberstwo_pkey DO NOTHING
+        ON CONFLICT ON CONSTRAINT members_pkey DO NOTHING
         """
         conn = psycopg2.connect(
                 user=os.environ.get('PSQL_USER'),
@@ -103,28 +103,3 @@ class LegislatorsToDB(DataToDB):
         cursor.executemany(query, vals)
         conn.commit()
         conn.close()
-
-    def _base_call(self, endpoint, headers=None, params=None):
-        """Hit endpoint.
-
-        :param endpoint: url
-        :type endpoint: str
-        :param headers: headers for request, defaults to None
-        :type headers: dict, optional
-        :param params: parameters for API, defaults to None
-        :type params: dict, optional
-        :return: response   
-        :rtype: dict
-        """
-        if headers is None:
-            headers = {"X-API-Key": os.environ['PRO_PUBLICA_API_KEY']}
-        else:
-            headers = {**headers, **{"X-API-Key": os.environ['PRO_PUBLICA_API_KEY']}}
-
-        params = {} if params is None else params
-
-        r = requests.get(endpoint, headers=headers, params=params)
-        if r.status_code != 200:
-            raise APIError(f"Error fetching member data -- received {r.status_code}")
-        else:
-            return json.loads(r.text)

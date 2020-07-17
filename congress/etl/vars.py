@@ -172,3 +172,38 @@ CREATE TABLE IF NOT EXISTS public.senate_votes_individual
 
 TABLESPACE pg_default;
 """
+
+TABLE_CREATE_VOTES = """
+CREATE TABLE IF NOT EXISTS public.votes
+(
+    congress smallint NOT NULL,
+    session smallint NOT NULL,
+    chamber character varying(255) COLLATE pg_catalog."default",
+    roll_call smallint NOT NULL,
+    source text COLLATE pg_catalog."default",
+    url text COLLATE pg_catalog."default",
+    bill text COLLATE pg_catalog."default",
+    amendment text COLLATE pg_catalog."default",
+    question text COLLATE pg_catalog."default",
+    question_text text COLLATE pg_catalog."default",
+    description text COLLATE pg_catalog."default",
+    vote_type text COLLATE pg_catalog."default",
+    date date,
+    "time" time without time zone,
+    result text COLLATE pg_catalog."default",
+    tie_breaker text COLLATE pg_catalog."default",
+    tie_breaker_vote text COLLATE pg_catalog."default",
+    document_number text COLLATE pg_catalog."default",
+    document_title text COLLATE pg_catalog."default",
+    democratic text COLLATE pg_catalog."default",
+    republican text COLLATE pg_catalog."default",
+    independent text COLLATE pg_catalog."default",
+    total text COLLATE pg_catalog."default",
+    positions text COLLATE pg_catalog."default",
+    CONSTRAINT votes_pkey PRIMARY KEY (congress, session, roll_call)
+)
+WITH (
+    OIDS = FALSE
+)
+TABLESPACE pg_default;
+"""

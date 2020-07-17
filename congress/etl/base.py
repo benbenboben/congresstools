@@ -1,6 +1,7 @@
 import psycopg2
 import os
 import multiprocessing as mp
+import requests
 
 
 class APIError(Exception):
@@ -32,8 +33,6 @@ class DataToDB(object):
         vals = []
         with mp.Pool() as pool:
             vals = pool.map(self.cleanse, df.to_dict(orient='records'))
-        # for row in df.to_dict(orient='records'):
-        #     vals.append(self.cleanse(row))
         return vals
 
     def to_psql(self, df):
@@ -47,6 +46,31 @@ class DataToDB(object):
         df = self.fetch(*args, **kwargs)
         vals = self.prep_for_psql(df)
         self.to_psql(vals)
+
+    def _base_call(self, endpoint, headers=None, params=None):
+        """Hit endpoint.
+
+        :param endpoint: url
+        :type endpoint: str
+        :param headers: headers for request, defaults to None
+        :type headers: dict, optional
+        :param params: parameters for API, defaults to None
+        :type params: dict, optional
+        :return: response   
+        :rtype: dict
+        """
+        if headers is None:
+            headers = {"X-API-Key": os.environ['PRO_PUBLICA_API_KEY']}
+        else:
+            headers = {**headers, **{"X-API-Key": os.environ['PRO_PUBLICA_API_KEY']}}
+
+        params = {} if params is None else params
+
+        r = requests.get(endpoint, headers=headers, params=params)
+        if r.status_code != 200:
+            raise APIError(f"Error fetching member data -- received {r.status_code}")
+        else:
+            return r.json()
 
 
 
