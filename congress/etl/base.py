@@ -33,7 +33,7 @@ class DataToDB(object):
         vals = []
         with mp.Pool() as pool:
             vals = pool.map(self.cleanse, df.to_dict(orient='records'))
-        return vals
+        return [i for i in vals if bool(i)]
 
     def to_psql(self, df):
         raise NotImplementedError
