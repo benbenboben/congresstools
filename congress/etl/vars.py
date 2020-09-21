@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS public.votes
     independent text COLLATE pg_catalog."default",
     total text COLLATE pg_catalog."default",
     positions text COLLATE pg_catalog."default",
-    CONSTRAINT votes_pkey PRIMARY KEY (congress, session, roll_call)
+    CONSTRAINT votes_pkey PRIMARY KEY (congress, session, chamber, roll_call)
 )
 WITH (
     OIDS = FALSE
