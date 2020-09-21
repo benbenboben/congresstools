@@ -49,7 +49,6 @@ class VotesToDB(DataToDB):
                     rcall += 1
                     totals += 1
                     errors_in_a_row = 0
-                    # time.sleep(0.5)
                     print(congress, chamber, rcall, totals, end='\r')
 
         print(f'Gathered {totals} roll call votes')
