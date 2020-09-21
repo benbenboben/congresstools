@@ -144,3 +144,7 @@ tmp/
 .idea/
 *.ipynb
 
+*.json
+log
+*.yml
+
